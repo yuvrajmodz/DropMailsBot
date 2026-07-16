@@ -1,4 +1,4 @@
-module bot
+module MiddleBot
 
 go 1.21
 
