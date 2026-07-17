@@ -41,6 +41,7 @@ type UserState struct {
 var (
 	userStates      = make(map[int64]UserState)
 	userStatesMutex sync.RWMutex
+	botToken        string
 )
 
 const StateWaitingCustomName = "waiting_custom_name"
@@ -55,7 +56,7 @@ func main() {
 
 	apiID, _ := strconv.ParseInt(os.Getenv("API_ID"), 10, 64)
 	apiHash := os.Getenv("API_HASH")
-	botToken := os.Getenv("BOT_TOKEN")
+	botToken = os.Getenv("BOT_TOKEN")
 
 	if apiID == 0 || apiHash == "" || botToken == "" {
 		log.Fatalf("❌ Missing required credentials in .env file")
@@ -199,7 +200,7 @@ func main() {
 
 	go StartSMTPServer()
 
-	client := telegram.NewClient(apiID, apiHash, telegram.Options{
+	client := telegram.NewClient(int(apiID), apiHash, telegram.Options{
 		UpdateHandler: dispatcher,
 	})
 
