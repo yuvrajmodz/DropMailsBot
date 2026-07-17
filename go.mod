@@ -4,9 +4,12 @@ go 1.21
 
 require (
 	github.com/emersion/go-smtp v0.21.3
+	github.com/fsnotify/fsnotify v1.7.0
+	github.com/google/go-github v17.0.0+incompatible
 	github.com/gotd/td v0.100.0
 	go.etcd.io/bbolt v1.4.0
 	github.com/jhillyerd/enmime v1.3.0
+	golang.org/x/oauth2 v0.15.0
 )
 
 require (
