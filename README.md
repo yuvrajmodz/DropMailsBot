@@ -1,4 +1,4 @@
-## TempMiddle - Temporary Email Telegram Bot
+# TempMiddle - Temporary Email Telegram Bot
 
 A Telegram Bot that provides Email addresses with Real-time Email Forwarding and automatic GitHub backup.
 
