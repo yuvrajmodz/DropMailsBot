@@ -9,7 +9,7 @@ A Telegram Bot that provides Email addresses with Real-time Email Forwarding and
 - Support for Email attachments
 - Multiple domain options
 - No ads, no charges, 24/7 online
-- Automatic GitHub Database Backup of Users data
+- Automatic GitHub Database Backup of Users Data
 
 ## Commands
 
