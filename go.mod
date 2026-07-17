@@ -10,6 +10,7 @@ require (
 	go.etcd.io/bbolt v1.4.0
 	github.com/jhillyerd/enmime v1.3.0
 	golang.org/x/oauth2 v0.15.0
+	github.com/joho/godotenv v1.5.1
 )
 
 require (
