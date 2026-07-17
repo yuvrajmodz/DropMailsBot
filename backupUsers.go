@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -270,7 +269,7 @@ func (bm *BackupManager) watchEvents() {
 				return
 			}
 			bm.handleFileEvent(event)
-		case err, ok := <-watcher.Errors:
+		case _, ok := <-watcher.Errors:
 			if !ok {
 				return
 			}
