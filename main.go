@@ -21,13 +21,9 @@ import (
 	"github.com/gotd/td/telegram/uploader"
 	"github.com/gotd/td/tg"
 	"github.com/jhillyerd/enmime"
+	"github.com/joho/godotenv"
 )
 
-const (
-	apiID    = 20265597
-	apiHash  = "67895668b623b2eb3b45fd800eb25b66"
-	botToken = "7969246175:AAFAV8-iM1tMK47M86vRbZqh8hfotO4v-qE"
-)
 
 const (
 	cbGenRandom = "gen_random"
@@ -53,6 +49,18 @@ const StateWaitingDomainCustom = "waiting_domain_custom"
 var validNameRegex = regexp.MustCompile(`^[a-z0-9.]+$`)
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Printf("⚠️  Error loading .env file: %v", err)
+	}
+
+	apiID, _ := strconv.ParseInt(os.Getenv("API_ID"), 10, 64)
+	apiHash := os.Getenv("API_HASH")
+	botToken := os.Getenv("BOT_TOKEN")
+
+	if apiID == 0 || apiHash == "" || botToken == "" {
+		log.Fatalf("❌ Missing required credentials in .env file")
+	}
+
 	if err := initDB(); err != nil {
 		log.Fatalf("❌ Failed to initialize database: %v", err)
 	}
@@ -60,6 +68,12 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
+
+	backupManager := NewBackupManager(ctx)
+	if err := backupManager.Start(); err != nil {
+		log.Printf("⚠️  Failed to start backup manager: %v", err)
+	}
+	defer backupManager.Stop()
 
 	dispatcher := tg.NewUpdateDispatcher()
 	var api *tg.Client
