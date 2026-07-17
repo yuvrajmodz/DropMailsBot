@@ -1,6 +1,6 @@
-# TempMiddle - Temporary Email Telegram Bot
+## TempMiddle - Temporary Email Telegram Bot
 
-A Telegram Bot that provides Email addresses with Real-time Email Forwarding.
+A Telegram Bot that provides Email addresses with Real-time Email Forwarding and automatic GitHub backup.
 
 ## Features
 
@@ -9,6 +9,7 @@ A Telegram Bot that provides Email addresses with Real-time Email Forwarding.
 - Support for Email attachments
 - Multiple domain options
 - No ads, no charges, 24/7 online
+- Automatic GitHub backup of user data
 
 ## Commands
 
@@ -33,13 +34,15 @@ A Telegram Bot that provides Email addresses with Real-time Email Forwarding.
 3. Configure the bot:
    - Get your Telegram Bot Token from [@BotFather](https://t.me/botfather)
    - Get API ID and Hash from [my.telegram.org](https://my.telegram.org)
-   - Update credentials in `main.go`:
-     ```go
-     const (
-         apiID    = YOUR_API_ID
-         apiHash  = "YOUR_API_HASH"
-         botToken = "YOUR_BOT_TOKEN"
-     )
+   - Create a GitHub Personal Access Token with `repo` scope
+   - Create a `.env` file in the project root:
+     ```env
+     API_ID=your_api_id
+     API_HASH=your_api_hash
+     BOT_TOKEN=your_bot_token
+     GITHUB_TOKEN=your_github_token
+     REPO_OWNER=your_github_username
+     REPO_NAME=your_backup_repo_name
      ```
    - Update domains in `emails_handler.go`:
      ```go
