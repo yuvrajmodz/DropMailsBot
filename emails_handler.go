@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"database/sql"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -15,7 +15,7 @@ import (
 
 	"github.com/emersion/go-smtp"
 	"github.com/jhillyerd/enmime"
-	_ "github.com/mattn/go-sqlite3"
+	bolt "go.etcd.io/bbolt"
 )
 
 var ErrEmailExists = errors.New("email already exists")
@@ -38,7 +38,7 @@ const (
 	dbFile = "data/UsersMaiL.db"
 )
 
-var db *sql.DB
+var db *bolt.DB
 
 func initDB() error {
 	if err := os.MkdirAll(dbDir, 0755); err != nil {
@@ -46,25 +46,17 @@ func initDB() error {
 	}
 
 	var err error
-	db, err = sql.Open("sqlite3", dbFile+"?_journal_mode=WAL&_synchronous=NORMAL")
+	db, err = bolt.Open(dbFile, 0600, &bolt.Options{Timeout: 5 * time.Second})
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
 
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(5 * time.Minute)
-
-	createTableQuery := `
-	CREATE TABLE IF NOT EXISTS emails (
-		email TEXT PRIMARY KEY,
-		chat_id INTEGER NOT NULL,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
-	CREATE INDEX IF NOT EXISTS idx_chat_id ON emails(chat_id);
-	`
-	if _, err := db.Exec(createTableQuery); err != nil {
-		return fmt.Errorf("create table: %w", err)
+	err = db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte("emails"))
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("create bucket: %w", err)
 	}
 
 	return nil
@@ -98,13 +90,41 @@ func generateCustomEmail(name, domainStr string) string {
 func generateAndSaveEmail(chatID int64, domainStr string) (string, error) {
 	for i := 0; i < 5; i++ { // retry up to 5 times for unique constraint
 		email := generateRandomEmail(domainStr)
-		_, err := db.Exec("INSERT INTO emails (email, chat_id) VALUES (?, ?)", email, chatID)
-		if err != nil {
-			if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-				continue
+		
+		var emailExists bool
+		err := db.View(func(tx *bolt.Tx) error {
+			b := tx.Bucket([]byte("emails"))
+			if b == nil {
+				return fmt.Errorf("bucket not found")
 			}
-			return "", fmt.Errorf("db.Exec: %w", err)
+			v := b.Get([]byte(email))
+			emailExists = v != nil
+			return nil
+		})
+		if err != nil {
+			return "", fmt.Errorf("check email exists: %w", err)
 		}
+		
+		if emailExists {
+			continue
+		}
+		
+		err = db.Update(func(tx *bolt.Tx) error {
+			b := tx.Bucket([]byte("emails"))
+			if b == nil {
+				return fmt.Errorf("bucket not found")
+			}
+
+			buf := make([]byte, 16)
+			binary.BigEndian.PutUint64(buf[0:8], uint64(chatID))
+			binary.BigEndian.PutUint64(buf[8:16], uint64(time.Now().Unix()))
+			
+			return b.Put([]byte(email), buf)
+		})
+		if err != nil {
+			return "", fmt.Errorf("save email: %w", err)
+		}
+		
 		return email, nil
 	}
 	return "", errors.New("failed to generate unique email")
@@ -113,32 +133,93 @@ func generateAndSaveEmail(chatID int64, domainStr string) (string, error) {
 func generateAndSaveCustomEmail(chatID int64, name, domainStr string) (string, error) {
 	email := generateCustomEmail(name, domainStr)
 
-	_, err := db.Exec("INSERT INTO emails (email, chat_id) VALUES (?, ?)", email, chatID)
-	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-			return "", ErrEmailExists
+	var emailExists bool
+	err := db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("emails"))
+		if b == nil {
+			return fmt.Errorf("bucket not found")
 		}
-		return "", fmt.Errorf("db.Exec: %w", err)
+		v := b.Get([]byte(email))
+		emailExists = v != nil
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("check email exists: %w", err)
+	}
+
+	if emailExists {
+		return "", ErrEmailExists
+	}
+
+	err = db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("emails"))
+		if b == nil {
+			return fmt.Errorf("bucket not found")
+		}
+
+		buf := make([]byte, 16)
+		binary.BigEndian.PutUint64(buf[0:8], uint64(chatID))
+		binary.BigEndian.PutUint64(buf[8:16], uint64(time.Now().Unix()))
+		
+		return b.Put([]byte(email), buf)
+	})
+	if err != nil {
+		return "", fmt.Errorf("save email: %w", err)
 	}
 
 	return email, nil
 }
 
 func getUserEmail(chatID int64) string {
-	var email string
-	err := db.QueryRow("SELECT email FROM emails WHERE chat_id = ? ORDER BY created_at DESC LIMIT 1", chatID).Scan(&email)
+	var latestEmail string
+	var latestTimestamp int64 = 0
+
+	err := db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("emails"))
+		if b == nil {
+			return fmt.Errorf("bucket not found")
+		}
+
+		c := b.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if len(v) >= 16 {
+				storedChatID := int64(binary.BigEndian.Uint64(v[0:8]))
+				storedTimestamp := int64(binary.BigEndian.Uint64(v[8:16]))
+				
+				if storedChatID == chatID && storedTimestamp > latestTimestamp {
+					latestTimestamp = storedTimestamp
+					latestEmail = string(k)
+				}
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return ""
 	}
-	return email
+
+	return latestEmail
 }
 
 func getChatIDForEmail(email string) int64 {
-	var chatID int64
-	err := db.QueryRow("SELECT chat_id FROM emails WHERE email = ?", email).Scan(&chatID)
+	var chatID int64 = 0
+
+	err := db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("emails"))
+		if b == nil {
+			return fmt.Errorf("bucket not found")
+		}
+
+		v := b.Get([]byte(email))
+		if v != nil && len(v) >= 8 {
+			chatID = int64(binary.BigEndian.Uint64(v[0:8]))
+		}
+		return nil
+	})
 	if err != nil {
 		return 0
 	}
+
 	return chatID
 }
 
