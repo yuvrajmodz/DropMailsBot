@@ -54,6 +54,10 @@ func main() {
 		log.Printf("⚠️  Error loading .env file: %v", err)
 	}
 
+	if err := InitializeLocalLLM(); err != nil {
+		log.Fatal(err)
+	}
+
 	apiID, _ := strconv.ParseInt(os.Getenv("API_ID"), 10, 64)
 	apiHash := os.Getenv("API_HASH")
 	botToken = os.Getenv("BOT_TOKEN")
