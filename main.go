@@ -29,6 +29,9 @@ const (
 	cbGenRandom = "gen_random"
 	cbGenCustom = "gen_custom"
 	cbGenCancel = "gen_cancel"
+	cbLlmSumEnable  = "llmsum_enable"
+	cbLlmSumDisable = "llmsum_disable"
+	cbLlmSumCancel  = "llmsum_cancel"
 )
 
 type UserState struct {
@@ -126,6 +129,13 @@ func main() {
 				userStatesMutex.Unlock()
 			}
 			err = handleGen(ctx, api, user)
+		case strings.HasPrefix(strings.ToLower(text), "/smartsummary"):
+			if user != nil {
+				userStatesMutex.Lock()
+				delete(userStates, user.ID)
+				userStatesMutex.Unlock()
+			}
+			err = handleSmartSummary(ctx, api, user)
 		default:
 			if user != nil {
 				userStatesMutex.RLock()
@@ -179,6 +189,12 @@ func main() {
 			err = handleCallbackGenCustom(ctx, api, user, peer, msgID)
 		case cbGenCancel:
 			err = handleCallbackGenCancel(ctx, api, user, peer, msgID)
+		case cbLlmSumEnable:
+			err = handleCallbackLlmSumEnable(ctx, api, user, peer, msgID)
+		case cbLlmSumDisable:
+			err = handleCallbackLlmSumDisable(ctx, api, user, peer, msgID)
+		case cbLlmSumCancel:
+			err = handleCallbackLlmSumCancel(ctx, api, user, peer, msgID)
 		default:
 			if strings.HasPrefix(callbackData, "cb_dom_rnd_") {
 				idxStr := strings.TrimPrefix(callbackData, "cb_dom_rnd_")
@@ -292,6 +308,7 @@ func setBotCommands(ctx context.Context, api *tg.Client) error {
 			{Command: "gen", Description: "Tᴏ Gᴇɴᴇʀᴀᴛᴇ Tᴇᴍᴘ Eᴍᴀɪʟ"},
 			{Command: "status", Description: "Tᴏ Cʜᴇᴄᴋ Bᴏᴛ Sᴛᴀᴛᴜs"},
 			{Command: "about", Description: "Aʙᴏᴜᴛ Bᴏᴛ & Dᴇᴠᴇʟᴏᴘᴇʀ"},
+			{Command: "SmartSummary", Description: "Lʟᴍ Eᴍᴀɪʟ(s) Sᴜᴍᴍᴀʀɪᴢᴀᴛɪᴏɴ"},
 		},
 	})
 	return err
@@ -397,6 +414,156 @@ func handleGen(ctx context.Context, api *tg.Client, user *tg.User) error {
 		NoWebpage:   true,
 	})
 	return err
+}
+
+func handleSmartSummary(ctx context.Context, api *tg.Client, user *tg.User) error {
+	if user == nil {
+		return fmt.Errorf("user is nil")
+	}
+
+	data := getUserData(user.ID)
+	
+	var fullText string
+	var markup *tg.ReplyInlineMarkup
+	
+	if !data.LlmSum {
+		fullText = "Lʟᴍ Sᴜᴍᴍᴀʀɪᴢᴀᴛɪᴏɴ: Dɪsᴀʙʟᴇᴅ 🔴\n\nEɴᴀʙʟᴇ Tʜɪs Fᴇᴀᴛᴜʀᴇ Tᴏ Aᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ Gᴇɴᴇʀᴀᴛᴇ Cᴏɴᴄɪsᴇ Aɪ-Pᴏᴡᴇʀᴇᴅ Sᴜᴍᴍᴀʀɪᴇs Fᴏʀ ɪɴᴄᴏᴍɪɴɢ Eᴍᴀɪʟs."
+		markup = &tg.ReplyInlineMarkup{
+			Rows: []tg.KeyboardButtonRow{
+				{
+					Buttons: []tg.KeyboardButtonClass{
+						&tg.KeyboardButtonCallback{
+							Text: "Eɴᴀʙʟᴇ",
+							Data: []byte(cbLlmSumEnable),
+						},
+					},
+				},
+				{
+					Buttons: []tg.KeyboardButtonClass{
+						&tg.KeyboardButtonCallback{
+							Text: "Cᴀɴᴄᴇʟ",
+							Data: []byte(cbLlmSumCancel),
+						},
+					},
+				},
+			},
+		}
+	} else {
+		fullText = "Lʟᴍ Sᴜᴍᴍᴀʀɪᴢᴀᴛɪᴏɴ: Eɴᴀʙʟᴇᴅ 🟢"
+		markup = &tg.ReplyInlineMarkup{
+			Rows: []tg.KeyboardButtonRow{
+				{
+					Buttons: []tg.KeyboardButtonClass{
+						&tg.KeyboardButtonCallback{
+							Text: "Dɪsᴀʙʟᴇ",
+							Data: []byte(cbLlmSumDisable),
+						},
+					},
+				},
+				{
+					Buttons: []tg.KeyboardButtonClass{
+						&tg.KeyboardButtonCallback{
+							Text: "Cᴀɴᴄᴇʟ",
+							Data: []byte(cbLlmSumCancel),
+						},
+					},
+				},
+			},
+		}
+	}
+	
+	entities := []tg.MessageEntityClass{
+		&tg.MessageEntityBold{Offset: 0, Length: utf16Len(fullText)},
+	}
+	
+	peer := userToInputPeer(user)
+	if peer == nil {
+		return fmt.Errorf("could not resolve peer")
+	}
+
+	_, err := api.MessagesSendMessage(ctx, &tg.MessagesSendMessageRequest{
+		Peer:        peer,
+		Message:     fullText,
+		Entities:    entities,
+		ReplyMarkup: markup,
+		RandomID:    rand.Int63(),
+		NoWebpage:   true,
+	})
+	return err
+}
+
+func handleCallbackLlmSumEnable(ctx context.Context, api *tg.Client, user *tg.User, peer tg.InputPeerClass, msgID int) error {
+	if user == nil {
+		return fmt.Errorf("user is nil")
+	}
+	setUserLlmSum(user.ID, true)
+	
+	fullText := "Lʟᴍ Sᴜᴍᴍᴀʀɪᴢᴀᴛɪᴏɴ: Eɴᴀʙʟᴇᴅ 🟢"
+	entities := []tg.MessageEntityClass{
+		&tg.MessageEntityBold{Offset: 0, Length: utf16Len(fullText)},
+	}
+	markup := &tg.ReplyInlineMarkup{
+		Rows: []tg.KeyboardButtonRow{
+			{
+				Buttons: []tg.KeyboardButtonClass{
+					&tg.KeyboardButtonCallback{
+						Text: "Dɪsᴀʙʟᴇ",
+						Data: []byte(cbLlmSumDisable),
+					},
+				},
+			},
+			{
+				Buttons: []tg.KeyboardButtonClass{
+					&tg.KeyboardButtonCallback{
+						Text: "Cᴀɴᴄᴇʟ",
+						Data: []byte(cbLlmSumCancel),
+					},
+				},
+			},
+		},
+	}
+	return editMessageWithMarkup(ctx, api, peer, msgID, fullText, entities, markup)
+}
+
+func handleCallbackLlmSumDisable(ctx context.Context, api *tg.Client, user *tg.User, peer tg.InputPeerClass, msgID int) error {
+	if user == nil {
+		return fmt.Errorf("user is nil")
+	}
+	setUserLlmSum(user.ID, false)
+	
+	fullText := "Lʟᴍ Sᴜᴍᴍᴀʀɪᴢᴀᴛɪᴏɴ: Dɪsᴀʙʟᴇᴅ 🔴\n\nEɴᴀʙʟᴇ Tʜɪs Fᴇᴀᴛᴜʀᴇ Tᴏ Aᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ Gᴇɴᴇʀᴀᴛᴇ Cᴏɴᴄɪsᴇ Aɪ-Pᴏᴡᴇʀᴇᴅ Sᴜᴍᴍᴀʀɪᴇs Fᴏʀ ɪɴᴄᴏᴍɪɴɢ Eᴍᴀɪʟs."
+	entities := []tg.MessageEntityClass{
+		&tg.MessageEntityBold{Offset: 0, Length: utf16Len(fullText)},
+	}
+	markup := &tg.ReplyInlineMarkup{
+		Rows: []tg.KeyboardButtonRow{
+			{
+				Buttons: []tg.KeyboardButtonClass{
+					&tg.KeyboardButtonCallback{
+						Text: "Eɴᴀʙʟᴇ",
+						Data: []byte(cbLlmSumEnable),
+					},
+				},
+			},
+			{
+				Buttons: []tg.KeyboardButtonClass{
+					&tg.KeyboardButtonCallback{
+						Text: "Cᴀɴᴄᴇʟ",
+						Data: []byte(cbLlmSumCancel),
+					},
+				},
+			},
+		},
+	}
+	return editMessageWithMarkup(ctx, api, peer, msgID, fullText, entities, markup)
+}
+
+func handleCallbackLlmSumCancel(ctx context.Context, api *tg.Client, user *tg.User, peer tg.InputPeerClass, msgID int) error {
+	text := "Aᴄᴛɪᴏɴ Cᴀɴᴄᴇʟʟᴇᴅ 🔴"
+	entities := []tg.MessageEntityClass{
+		&tg.MessageEntityBold{Offset: 0, Length: utf16Len(text)},
+	}
+	return editMessage(ctx, api, peer, msgID, text, entities)
 }
 
 func handleCallbackGenRandom(ctx context.Context, api *tg.Client, user *tg.User, peer tg.InputPeerClass, msgID int) error {
