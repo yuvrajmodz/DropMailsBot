@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -52,8 +53,13 @@ func initDB() error {
 	}
 
 	err = db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte("emails"))
-		return err
+		if _, err := tx.CreateBucketIfNotExists([]byte("emails")); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists([]byte("users")); err != nil {
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("create bucket: %w", err)
@@ -67,6 +73,51 @@ func CloseDB() {
 		db.Close()
 	}
 }
+
+type UserData struct {
+	LlmSum bool `json:"llm_sum"`
+}
+
+func getUserData(chatID int64) UserData {
+	var data UserData
+	db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("users"))
+		if b == nil {
+			return nil
+		}
+		
+		key := []byte(fmt.Sprintf("%d", chatID))
+		
+		val := b.Get(key)
+		if val != nil {
+			json.Unmarshal(val, &data)
+		}
+		return nil
+	})
+	return data
+}
+
+func setUserLlmSum(chatID int64, llmSum bool) error {
+	return db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("users"))
+		if b == nil {
+			return fmt.Errorf("bucket not found")
+		}
+		
+		key := []byte(fmt.Sprintf("%d", chatID))
+		
+		val := b.Get(key)
+		var data UserData
+		if val != nil {
+			json.Unmarshal(val, &data)
+		}
+		data.LlmSum = llmSum
+		
+		newVal, _ := json.Marshal(data)
+		return b.Put(key, newVal)
+	})
+}
+
 
 func generateRandomEmail(domainStr string) string {
 	const letters = "abcdefghijklmnopqrstuvwxyz"
@@ -88,7 +139,7 @@ func generateCustomEmail(name, domainStr string) string {
 }
 
 func generateAndSaveEmail(chatID int64, domainStr string) (string, error) {
-	for i := 0; i < 5; i++ { // retry up to 5 times for unique constraint
+	for i := 0; i < 5; i++ {
 		email := generateRandomEmail(domainStr)
 		
 		var emailExists bool
