@@ -69,10 +69,9 @@ func main() {
 		log.Fatalf("❌ Missing required credentials in .env file")
 	}
 
-	if err := initDB(); err != nil {
+	if err := initJSONStore(); err != nil {
 		log.Fatalf("❌ Failed to initialize database: %v", err)
 	}
-	defer CloseDB()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -321,7 +320,7 @@ func handleStart(ctx context.Context, api *tg.Client, user *tg.User) error {
 	}
 
 	line1 := fmt.Sprintf("Hᴇʏ %s 👋,", firstName)
-	line2 := "Wᴇʟᴄᴏᴍᴇ Tᴏ Oᴜʀ TᴇᴍᴘMɪᴅᴅʟᴇ Bᴏᴛ, Wʜɪᴄʜ Cᴀɴ Hᴇʟᴘ Yᴏᴜ Gᴇɴᴇʀᴀᴛᴇ Tᴇᴍᴘ Eᴍᴀɪʟs,"
+	line2 := "Wᴇʟᴄᴏᴍᴇ Tᴏ Oᴜʀ DʀᴏᴘMᴀɪʟs Bᴏᴛ, Wʜɪᴄʜ Cᴀɴ Hᴇʟᴘ Yᴏᴜ Gᴇɴᴇʀᴀᴛᴇ Tᴇᴍᴘ Eᴍᴀɪʟs,"
 	line3 := "Sᴀғᴇʟʏ & Sᴇᴄᴜʀᴇʟʏ, Sʜᴀʀᴇ Wɪᴛʜ Aɴʏᴏɴᴇ."
 	fullText := line1 + "\n\n" + line2 + "\n" + line3
 

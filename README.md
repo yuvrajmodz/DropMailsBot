@@ -1,4 +1,4 @@
-# TempMiddle - Temporary Email Telegram Bot
+# DropMails Bot - Temporary Email Telegram Bot
 
 A Telegram Bot that provides Email addresses with Real-time Email Forwarding and automatic GitHub backup.
 
@@ -22,7 +22,7 @@ A Telegram Bot that provides Email addresses with Real-time Email Forwarding and
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yuvrajmodz/TempMiddleBot
+   git clone https://github.com/yuvrajmodz/DropMailsBot
    cd TempMiddleBot
    ```
 

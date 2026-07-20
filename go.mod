@@ -1,4 +1,4 @@
-module MiddleBot
+module MailsBot
 
 go 1.23
 
@@ -9,7 +9,6 @@ require (
 	github.com/gotd/td v0.100.0
 	github.com/jhillyerd/enmime v1.3.0
 	github.com/joho/godotenv v1.5.1
-	go.etcd.io/bbolt v1.4.0
 	golang.org/x/oauth2 v0.15.0
 )
 

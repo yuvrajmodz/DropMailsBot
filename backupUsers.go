@@ -290,6 +290,10 @@ func (bm *BackupManager) handleFileEvent(event fsnotify.Event) {
 		event.Op&fsnotify.Remove == fsnotify.Remove ||
 		event.Op&fsnotify.Rename == fsnotify.Rename {
 		backupDirty.Store(true)
+
+		if filepath.Base(event.Name) == "UsersMaiL.json" && (event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create) {
+			_ = reloadJSONStore()
+		}
 	}
 }
 

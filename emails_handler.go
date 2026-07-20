@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,11 +11,11 @@ import (
 	"math/rand"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/emersion/go-smtp"
 	"github.com/jhillyerd/enmime"
-	bolt "go.etcd.io/bbolt"
 )
 
 var ErrEmailExists = errors.New("email already exists")
@@ -36,88 +35,100 @@ func getDomains() []string {
 
 const (
 	dbDir  = "data"
-	dbFile = "data/UsersMaiL.db"
+	dbFile = "data/UsersMaiL.json"
 )
-
-var db *bolt.DB
-
-func initDB() error {
-	if err := os.MkdirAll(dbDir, 0755); err != nil {
-		return fmt.Errorf("ensureDataDir: %w", err)
-	}
-
-	var err error
-	db, err = bolt.Open(dbFile, 0600, &bolt.Options{Timeout: 5 * time.Second})
-	if err != nil {
-		return fmt.Errorf("open db: %w", err)
-	}
-
-	err = db.Update(func(tx *bolt.Tx) error {
-		if _, err := tx.CreateBucketIfNotExists([]byte("emails")); err != nil {
-			return err
-		}
-		if _, err := tx.CreateBucketIfNotExists([]byte("users")); err != nil {
-			return err
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("create bucket: %w", err)
-	}
-
-	return nil
-}
-
-func CloseDB() {
-	if db != nil {
-		db.Close()
-	}
-}
 
 type UserData struct {
 	LlmSum bool `json:"llm_sum"`
 }
 
+type EmailData struct {
+	ChatID    int64 `json:"chat_id"`
+	Timestamp int64 `json:"timestamp"`
+}
+
+type StoreData struct {
+	Emails map[string]EmailData `json:"emails"`
+	Users  map[string]UserData  `json:"users"`
+}
+
+var (
+	storeMutex sync.RWMutex
+	store      StoreData
+)
+
+func initJSONStore() error {
+	storeMutex.Lock()
+	defer storeMutex.Unlock()
+	return loadStoreLocked()
+}
+
+func reloadJSONStore() error {
+	storeMutex.Lock()
+	defer storeMutex.Unlock()
+	return loadStoreLocked()
+}
+
+func loadStoreLocked() error {
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		return fmt.Errorf("ensureDataDir: %w", err)
+	}
+
+	data, err := os.ReadFile(dbFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			store = StoreData{
+				Emails: make(map[string]EmailData),
+				Users:  make(map[string]UserData),
+			}
+			return saveStoreLocked()
+		}
+		return fmt.Errorf("read db file: %w", err)
+	}
+
+	var loaded StoreData
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		store = StoreData{
+			Emails: make(map[string]EmailData),
+			Users:  make(map[string]UserData),
+		}
+		return saveStoreLocked()
+	}
+
+	if loaded.Emails == nil {
+		loaded.Emails = make(map[string]EmailData)
+	}
+	if loaded.Users == nil {
+		loaded.Users = make(map[string]UserData)
+	}
+	store = loaded
+	return nil
+}
+
+func saveStoreLocked() error {
+	data, err := json.MarshalIndent(store, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dbFile, data, 0644)
+}
+
 func getUserData(chatID int64) UserData {
-	var data UserData
-	db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("users"))
-		if b == nil {
-			return nil
-		}
-		
-		key := []byte(fmt.Sprintf("%d", chatID))
-		
-		val := b.Get(key)
-		if val != nil {
-			json.Unmarshal(val, &data)
-		}
-		return nil
-	})
-	return data
+	storeMutex.RLock()
+	defer storeMutex.RUnlock()
+	key := fmt.Sprintf("%d", chatID)
+	return store.Users[key]
 }
 
 func setUserLlmSum(chatID int64, llmSum bool) error {
-	return db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("users"))
-		if b == nil {
-			return fmt.Errorf("bucket not found")
-		}
-		
-		key := []byte(fmt.Sprintf("%d", chatID))
-		
-		val := b.Get(key)
-		var data UserData
-		if val != nil {
-			json.Unmarshal(val, &data)
-		}
-		data.LlmSum = llmSum
-		
-		newVal, _ := json.Marshal(data)
-		return b.Put(key, newVal)
-	})
+	storeMutex.Lock()
+	defer storeMutex.Unlock()
+	key := fmt.Sprintf("%d", chatID)
+	data := store.Users[key]
+	data.LlmSum = llmSum
+	store.Users[key] = data
+	return saveStoreLocked()
 }
-
 
 func generateRandomEmail(domainStr string) string {
 	const letters = "abcdefghijklmnopqrstuvwxyz"
@@ -139,43 +150,23 @@ func generateCustomEmail(name, domainStr string) string {
 }
 
 func generateAndSaveEmail(chatID int64, domainStr string) (string, error) {
+	storeMutex.Lock()
+	defer storeMutex.Unlock()
+
 	for i := 0; i < 5; i++ {
 		email := generateRandomEmail(domainStr)
-		
-		var emailExists bool
-		err := db.View(func(tx *bolt.Tx) error {
-			b := tx.Bucket([]byte("emails"))
-			if b == nil {
-				return fmt.Errorf("bucket not found")
-			}
-			v := b.Get([]byte(email))
-			emailExists = v != nil
-			return nil
-		})
-		if err != nil {
-			return "", fmt.Errorf("check email exists: %w", err)
-		}
-		
-		if emailExists {
+		if _, exists := store.Emails[email]; exists {
 			continue
 		}
-		
-		err = db.Update(func(tx *bolt.Tx) error {
-			b := tx.Bucket([]byte("emails"))
-			if b == nil {
-				return fmt.Errorf("bucket not found")
-			}
 
-			buf := make([]byte, 16)
-			binary.BigEndian.PutUint64(buf[0:8], uint64(chatID))
-			binary.BigEndian.PutUint64(buf[8:16], uint64(time.Now().Unix()))
-			
-			return b.Put([]byte(email), buf)
-		})
-		if err != nil {
+		store.Emails[email] = EmailData{
+			ChatID:    chatID,
+			Timestamp: time.Now().Unix(),
+		}
+
+		if err := saveStoreLocked(); err != nil {
 			return "", fmt.Errorf("save email: %w", err)
 		}
-		
 		return email, nil
 	}
 	return "", errors.New("failed to generate unique email")
@@ -184,94 +175,49 @@ func generateAndSaveEmail(chatID int64, domainStr string) (string, error) {
 func generateAndSaveCustomEmail(chatID int64, name, domainStr string) (string, error) {
 	email := generateCustomEmail(name, domainStr)
 
-	var emailExists bool
-	err := db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("emails"))
-		if b == nil {
-			return fmt.Errorf("bucket not found")
-		}
-		v := b.Get([]byte(email))
-		emailExists = v != nil
-		return nil
-	})
-	if err != nil {
-		return "", fmt.Errorf("check email exists: %w", err)
-	}
+	storeMutex.Lock()
+	defer storeMutex.Unlock()
 
-	if emailExists {
+	if _, exists := store.Emails[email]; exists {
 		return "", ErrEmailExists
 	}
 
-	err = db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("emails"))
-		if b == nil {
-			return fmt.Errorf("bucket not found")
-		}
-
-		buf := make([]byte, 16)
-		binary.BigEndian.PutUint64(buf[0:8], uint64(chatID))
-		binary.BigEndian.PutUint64(buf[8:16], uint64(time.Now().Unix()))
-		
-		return b.Put([]byte(email), buf)
-	})
-	if err != nil {
-		return "", fmt.Errorf("save email: %w", err)
+	store.Emails[email] = EmailData{
+		ChatID:    chatID,
+		Timestamp: time.Now().Unix(),
 	}
 
+	if err := saveStoreLocked(); err != nil {
+		return "", fmt.Errorf("save email: %w", err)
+	}
 	return email, nil
 }
 
 func getUserEmail(chatID int64) string {
+	storeMutex.RLock()
+	defer storeMutex.RUnlock()
+
 	var latestEmail string
 	var latestTimestamp int64 = 0
 
-	err := db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("emails"))
-		if b == nil {
-			return fmt.Errorf("bucket not found")
+	for email, data := range store.Emails {
+		if data.ChatID == chatID && data.Timestamp > latestTimestamp {
+			latestTimestamp = data.Timestamp
+			latestEmail = email
 		}
-
-		c := b.Cursor()
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if len(v) >= 16 {
-				storedChatID := int64(binary.BigEndian.Uint64(v[0:8]))
-				storedTimestamp := int64(binary.BigEndian.Uint64(v[8:16]))
-				
-				if storedChatID == chatID && storedTimestamp > latestTimestamp {
-					latestTimestamp = storedTimestamp
-					latestEmail = string(k)
-				}
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return ""
 	}
 
 	return latestEmail
 }
 
 func getChatIDForEmail(email string) int64 {
-	var chatID int64 = 0
+	storeMutex.RLock()
+	defer storeMutex.RUnlock()
 
-	err := db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("emails"))
-		if b == nil {
-			return fmt.Errorf("bucket not found")
-		}
-
-		v := b.Get([]byte(email))
-		if v != nil && len(v) >= 8 {
-			chatID = int64(binary.BigEndian.Uint64(v[0:8]))
-		}
-		return nil
-	})
-	if err != nil {
-		return 0
+	if data, ok := store.Emails[email]; ok {
+		return data.ChatID
 	}
-
-	return chatID
+	return 0
 }
 
 var telegramNotifier func(ctx context.Context, chatID int64, fromEmail, toEmail, fromName, subject, body string, attachments []*enmime.Part)
