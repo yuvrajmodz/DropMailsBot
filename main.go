@@ -307,9 +307,12 @@ func setBotCommands(ctx context.Context, api *tg.Client) error {
 			{Command: "gen", Description: "Tᴏ Gᴇɴᴇʀᴀᴛᴇ Tᴇᴍᴘ Eᴍᴀɪʟ"},
 			{Command: "status", Description: "Tᴏ Cʜᴇᴄᴋ Bᴏᴛ Sᴛᴀᴛᴜs"},
 			{Command: "about", Description: "Aʙᴏᴜᴛ Bᴏᴛ & Dᴇᴠᴇʟᴏᴘᴇʀ"},
-			{Command: "SmartSummary", Description: "Lʟᴍ Eᴍᴀɪʟ(s) Sᴜᴍᴍᴀʀɪᴢᴀᴛɪᴏɴ"},
+			{Command: "smartsummary", Description: "Lʟᴍ Eᴍᴀɪʟ(s) Sᴜᴍᴍᴀʀɪᴢᴀᴛɪᴏɴ"},
 		},
 	})
+	if err != nil {
+		log.Printf("Failed to set bot commands: %v", err)
+	}
 	return err
 }
 
