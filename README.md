@@ -23,7 +23,7 @@ A Telegram Bot that provides Email addresses with Real-time Email Forwarding and
 1. Clone the repository:
    ```bash
    git clone https://github.com/yuvrajmodz/DropMailsBot
-   cd TempMiddleBot
+   cd DropMailsBot
    ```
 
 2. Install dependencies:
