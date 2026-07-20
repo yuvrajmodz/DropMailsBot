@@ -1,4 +1,4 @@
-# DropMails Bot - Temporary Email Telegram Bot
+# DropMails - Temporary Email Telegram Bot
 
 A Telegram Bot that provides Email addresses with Real-time Email Forwarding and automatic GitHub backup.
 
