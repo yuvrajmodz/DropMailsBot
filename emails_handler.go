@@ -20,7 +20,7 @@ import (
 
 var ErrEmailExists = errors.New("email already exists")
 
-var Domains = "nacdevs.qzz.io"
+var Domains = "nacdevs.qzz.io,xtg.qzz.io"
 
 func getDomains() []string {
 	var list []string
