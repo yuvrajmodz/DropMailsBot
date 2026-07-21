@@ -39,7 +39,6 @@ const (
 )
 
 type UserData struct {
-	LlmSum bool `json:"llm_sum"`
 }
 
 type EmailData struct {
@@ -111,23 +110,6 @@ func saveStoreLocked() error {
 		return err
 	}
 	return os.WriteFile(dbFile, data, 0644)
-}
-
-func getUserData(chatID int64) UserData {
-	storeMutex.RLock()
-	defer storeMutex.RUnlock()
-	key := fmt.Sprintf("%d", chatID)
-	return store.Users[key]
-}
-
-func setUserLlmSum(chatID int64, llmSum bool) error {
-	storeMutex.Lock()
-	defer storeMutex.Unlock()
-	key := fmt.Sprintf("%d", chatID)
-	data := store.Users[key]
-	data.LlmSum = llmSum
-	store.Users[key] = data
-	return saveStoreLocked()
 }
 
 func generateRandomEmail(domainStr string) string {
