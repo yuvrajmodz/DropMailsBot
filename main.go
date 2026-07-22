@@ -285,7 +285,7 @@ func setBotCommands(ctx context.Context, api *tg.Client) error {
 		Commands: []tg.BotCommand{
 			{Command: "start", Description: "Tᴏ Sᴛᴀʀᴛ Oʀ Rᴇsᴛᴀʀᴛ"},
 			{Command: "gen", Description: "Tᴏ Gᴇɴᴇʀᴀᴛᴇ Tᴇᴍᴘ Eᴍᴀɪʟ"},
-			{Command: "forwardmails", Description: "Fᴏʀᴡᴀʀᴅ Aʟʟ Mᴀɪʟs Tᴏ Yᴏᴜʀ Gᴍᴀɪʟ"},
+			{Command: "forwardmails", Description: "Aᴜᴛᴏ Fᴏʀᴡᴀʀᴅ Tᴏ Yᴏᴜʀ Gᴍᴀɪʟ"},
 			{Command: "status", Description: "Tᴏ Cʜᴇᴄᴋ Bᴏᴛ Sᴛᴀᴛᴜs"},
 			{Command: "about", Description: "Aʙᴏᴜᴛ Bᴏᴛ & Dᴇᴠᴇʟᴏᴘᴇʀ"},
 		},
