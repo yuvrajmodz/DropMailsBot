@@ -69,10 +69,6 @@ func main() {
 		log.Fatalf("❌ Missing required credentials in .env file")
 	}
 
-	if err := initJSONStore(); err != nil {
-		log.Fatalf("❌ Failed to initialize database: %v", err)
-	}
-
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
@@ -81,6 +77,10 @@ func main() {
 		log.Printf("⚠️  Failed to start backup manager: %v", err)
 	}
 	defer backupManager.Stop()
+
+	if err := initJSONStore(); err != nil {
+		log.Fatalf("❌ Failed to initialize database: %v", err)
+	}
 
 	dispatcher := tg.NewUpdateDispatcher()
 	var api *tg.Client
