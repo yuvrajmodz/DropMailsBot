@@ -415,7 +415,7 @@ func forwardEmailToGmail(toGmail, fromEmail, toAddr, subject string, env *enmime
 	buf := new(bytes.Buffer)
 	writer := multipart.NewWriter(buf)
 
-	buf.WriteString("From: DropMails <dropmails.services@gmail.com>\r\n")
+	buf.WriteString("From: DropMails Bot <dropmails.services@gmail.com>\r\n")
 	buf.WriteString(fmt.Sprintf("To: %s\r\n", toGmail))
 	
 	encodedSubject := mime.QEncoding.Encode("utf-8", subject)
