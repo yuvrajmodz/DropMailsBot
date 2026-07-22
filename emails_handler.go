@@ -1,4 +1,4 @@
-package main
+emapackage main
 
 import (
 	"bytes"
