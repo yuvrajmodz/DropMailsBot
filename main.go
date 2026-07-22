@@ -285,6 +285,7 @@ func setBotCommands(ctx context.Context, api *tg.Client) error {
 		Commands: []tg.BotCommand{
 			{Command: "start", Description: "Tᴏ Sᴛᴀʀᴛ Oʀ Rᴇsᴛᴀʀᴛ"},
 			{Command: "gen", Description: "Tᴏ Gᴇɴᴇʀᴀᴛᴇ Tᴇᴍᴘ Eᴍᴀɪʟ"},
+			{Command: "forwardmails", Description: "Aʙᴏᴜᴛ Bᴏᴛ & Dᴇᴠᴇʟᴏᴘᴇʀ"},
 			{Command: "status", Description: "Tᴏ Cʜᴇᴄᴋ Bᴏᴛ Sᴛᴀᴛᴜs"},
 			{Command: "about", Description: "Aʙᴏᴜᴛ Bᴏᴛ & Dᴇᴠᴇʟᴏᴘᴇʀ"},
 		},
@@ -567,7 +568,8 @@ func handleDomainSelectionRandom(ctx context.Context, api *tg.Client, user *tg.U
 
 	line1 := "Tᴇᴍᴘ Mᴀɪʟ Gᴇɴᴇʀᴀᴛᴇᴅ 🟢"
 	line2 := fmt.Sprintf("Eᴍᴀɪʟ: %s", email)
-	fullText := line1 + "\n\n" + line2
+	line3 := "Yᴏᴜʀ Eᴍᴀɪʟ Aᴅᴅʀᴇss Hᴀs Bᴇᴇɴ Sᴜᴄᴄᴇssғᴜʟʟʏ Lɪɴᴋᴇᴅ Tᴏ Yᴏᴜʀ Aᴄᴄᴏᴜɴᴛ, Fʀᴏᴍ Nᴏᴡ, Aɴʏ Mᴀɪʟ Sᴇɴᴛ Tᴏ Tʜɪs Eᴍᴀɪʟ Wɪʟʟ Bᴇ Aᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ Rᴇᴄᴇɪᴠᴇᴅ Aɴᴅ Dᴇʟɪᴠᴇʀᴇᴅ Tᴏ Yᴏᴜ Vɪᴀ Tʜɪs Bᴏᴛ."
+	fullText := line1 + "\n\n" + line2 + "\n\n" + line3
 
 	entities := []tg.MessageEntityClass{
 		&tg.MessageEntityBold{Offset: 0, Length: utf16Len(fullText)},
