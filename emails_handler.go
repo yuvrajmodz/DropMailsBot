@@ -3,12 +3,18 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"math/rand"
+	"mime"
+	"mime/multipart"
+	netsmtp "net/smtp"
+	"net/textproto"
 	"os"
 	"strings"
 	"sync"
@@ -38,9 +44,6 @@ const (
 	dbFile = "data/UsersMaiL.json"
 )
 
-type UserData struct {
-}
-
 type EmailData struct {
 	ChatID    int64 `json:"chat_id"`
 	Timestamp int64 `json:"timestamp"`
@@ -48,7 +51,7 @@ type EmailData struct {
 
 type StoreData struct {
 	Emails map[string]EmailData `json:"emails"`
-	Users  map[string]UserData  `json:"users"`
+	Users  map[string]string    `json:"users"`
 }
 
 var (
@@ -78,7 +81,7 @@ func loadStoreLocked() error {
 		if os.IsNotExist(err) {
 			store = StoreData{
 				Emails: make(map[string]EmailData),
-				Users:  make(map[string]UserData),
+				Users:  make(map[string]string),
 			}
 			return saveStoreLocked()
 		}
@@ -89,7 +92,7 @@ func loadStoreLocked() error {
 	if err := json.Unmarshal(data, &loaded); err != nil {
 		store = StoreData{
 			Emails: make(map[string]EmailData),
-			Users:  make(map[string]UserData),
+			Users:  make(map[string]string),
 		}
 		return saveStoreLocked()
 	}
@@ -98,7 +101,7 @@ func loadStoreLocked() error {
 		loaded.Emails = make(map[string]EmailData)
 	}
 	if loaded.Users == nil {
-		loaded.Users = make(map[string]UserData)
+		loaded.Users = make(map[string]string)
 	}
 	store = loaded
 	return nil
@@ -110,6 +113,46 @@ func saveStoreLocked() error {
 		return err
 	}
 	return os.WriteFile(dbFile, data, 0644)
+}
+
+func ensureUserInStore(userID int64) {
+	storeMutex.Lock()
+	defer storeMutex.Unlock()
+	
+	idStr := fmt.Sprintf("%d", userID)
+	if store.Users == nil {
+		store.Users = make(map[string]string)
+	}
+	if _, exists := store.Users[idStr]; !exists {
+		store.Users[idStr] = "nomail"
+		_ = saveStoreLocked()
+	}
+}
+
+func getForwardEmail(userID int64) string {
+	storeMutex.RLock()
+	defer storeMutex.RUnlock()
+	
+	idStr := fmt.Sprintf("%d", userID)
+	if store.Users == nil {
+		return "nomail"
+	}
+	if email, exists := store.Users[idStr]; exists {
+		return email
+	}
+	return "nomail"
+}
+
+func setForwardEmail(userID int64, email string) {
+	storeMutex.Lock()
+	defer storeMutex.Unlock()
+	
+	idStr := fmt.Sprintf("%d", userID)
+	if store.Users == nil {
+		store.Users = make(map[string]string)
+	}
+	store.Users[idStr] = email
+	_ = saveStoreLocked()
 }
 
 func generateRandomEmail(domainStr string) string {
@@ -288,6 +331,13 @@ func (s *Session) Data(r io.Reader) error {
 			ctx := context.Background()
 			telegramNotifier(ctx, chatID, fromEmail, toAddr, fromName, subject, body, allAttachments)
 		}
+
+		forwardEmail := getForwardEmail(chatID)
+		if forwardEmail != "" && forwardEmail != "nomail" && strings.HasSuffix(strings.ToLower(forwardEmail), "@gmail.com") {
+			go func(toGmail, fEmail, tAddr, sub string, envelope *enmime.Envelope) {
+				_ = forwardEmailToGmail(toGmail, fEmail, tAddr, sub, envelope)
+			}(forwardEmail, fromEmail, toAddr, subject, env)
+		}
 	}
 
 	return nil
@@ -300,6 +350,127 @@ func (s *Session) Reset() {
 
 func (s *Session) Logout() error {
 	return nil
+}
+
+type mimeLineWrapper struct {
+	w   io.Writer
+	len int
+}
+
+func (l *mimeLineWrapper) Write(p []byte) (n int, err error) {
+	for _, b := range p {
+		if l.len >= 76 {
+			if _, err := l.w.Write([]byte("\r\n")); err != nil {
+				return n, err
+			}
+			l.len = 0
+		}
+		if _, err := l.w.Write([]byte{b}); err != nil {
+			return n, err
+		}
+		l.len++
+		n++
+	}
+	return n, nil
+}
+
+func forwardEmailToGmail(toGmail, fromEmail, toAddr, subject string, env *enmime.Envelope) error {
+	banner := `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 18px 0;font-family:Arial,Helvetica,sans-serif;border:1px solid #f4d03f;border-radius:12px;background:#fffdf5;">
+  <tr>
+    <td style="padding:18px 22px;background:#f4b400;border-radius:12px 12px 0 0;">
+      <div style="font-size:20px;font-weight:700;color:#111827;line-height:1;">DropMails</div>
+      <div style="margin-top:6px;font-size:13px;color:#5f4300;">Forwarded Email</div>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:22px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:14px;">
+        <tr>
+          <td width="70" style="padding:11px 0;color:#8a6d00;font-weight:600;">From</td>
+          <td style="padding:11px 0;color:#1f2937;">{{FROM}}</td>
+        </tr>
+        <tr>
+          <td colspan="2" style="border-top:1px solid #f7df87;"></td>
+        </tr>
+        <tr>
+          <td width="70" style="padding:11px 0;color:#8a6d00;font-weight:600;">To</td>
+          <td style="padding:11px 0;color:#1f2937;">{{TO}}</td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+<hr style="border:none;border-top:2px solid #f4d03f;margin:22px 0;">`
+
+	banner = strings.ReplaceAll(banner, "{{FROM}}", html.EscapeString(fromEmail))
+	banner = strings.ReplaceAll(banner, "{{TO}}", html.EscapeString(toAddr))
+
+	var htmlBody string
+	if env.HTML != "" {
+		htmlBody = banner + "\n<br>\n" + env.HTML
+	} else {
+		htmlBody = banner + "\n<br>\n<pre style=\"white-space: pre-wrap;\">" + html.EscapeString(env.Text) + "</pre>"
+	}
+
+	buf := new(bytes.Buffer)
+	writer := multipart.NewWriter(buf)
+
+	buf.WriteString("From: DropMails <dropmails.services@gmail.com>\r\n")
+	buf.WriteString(fmt.Sprintf("To: %s\r\n", toGmail))
+	
+	encodedSubject := mime.QEncoding.Encode("utf-8", subject)
+	buf.WriteString(fmt.Sprintf("Subject: %s\r\n", encodedSubject))
+	buf.WriteString("MIME-Version: 1.0\r\n")
+	
+	buf.WriteString(fmt.Sprintf("Content-Type: multipart/mixed; boundary=\"%s\"\r\n\r\n", writer.Boundary()))
+
+	htmlHeader := make(textproto.MIMEHeader)
+	htmlHeader.Set("Content-Type", "text/html; charset=utf-8")
+	htmlHeader.Set("Content-Transfer-Encoding", "base64")
+	
+	htmlPart, _ := writer.CreatePart(htmlHeader)
+	
+	b64Writer := base64.NewEncoder(base64.StdEncoding, &mimeLineWrapper{w: htmlPart})
+	b64Writer.Write([]byte(htmlBody))
+	b64Writer.Close()
+
+	for _, att := range env.Attachments {
+		writeEmailPart(writer, att, false)
+	}
+
+	for _, inl := range env.Inlines {
+		writeEmailPart(writer, inl, true)
+	}
+
+	writer.Close()
+
+	auth := netsmtp.PlainAuth("", "dropmails.services@gmail.com", "hwzo pbmo ebdc oxkm", "smtp.gmail.com")
+	return netsmtp.SendMail("smtp.gmail.com:587", auth, "dropmails.services@gmail.com", []string{toGmail}, buf.Bytes())
+}
+
+func writeEmailPart(writer *multipart.Writer, p *enmime.Part, isInline bool) {
+	h := make(textproto.MIMEHeader)
+	contentType := p.ContentType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	
+	h.Set("Content-Type", contentType)
+	h.Set("Content-Transfer-Encoding", "base64")
+	
+	if isInline && p.ContentID != "" {
+		h.Set("Content-ID", fmt.Sprintf("<%s>", p.ContentID))
+		h.Set("Content-Disposition", "inline")
+	} else {
+		h.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, p.FileName))
+	}
+	
+	part, err := writer.CreatePart(h)
+	if err == nil {
+		b64Writer := base64.NewEncoder(base64.StdEncoding, &mimeLineWrapper{w: part})
+		b64Writer.Write(p.Content)
+		b64Writer.Close()
+	}
 }
 
 func StartSMTPServer() {
