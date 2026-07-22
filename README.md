@@ -49,6 +49,27 @@ A Telegram Bot that provides Email addresses with Real-time Email Forwarding and
      var Domains = "yourdomain1.com,yourdomain2.com"
      ```
 
+## Cloudflare DNS Setup
+
+To connect your domain for email receiving, add the following DNS records in Cloudflare:
+
+### A Record (Mail Server)
+| Type | Name | Content | Proxy Status |
+|------|------|---------|--------------|
+| A | mail | Your Server IP | DNS Only (Grey Cloud) |
+
+### MX Records (Required for Email Receiving)
+| Type | Name | Content | Priority |
+|------|------|---------|----------|
+| MX | @ | mail.yourdomain.com | 10 |
+
+### TXT Record (SPF - Optional)
+| Type | Name | Content |
+|------|------|---------|
+| TXT | @ | v=spf1 mx ip4:YOUR_SERVER_IP -all |
+
+**Note:** Replace `yourdomain.com` with your actual domain and `YOUR_SERVER_IP` with your server IP address.
+
 ## Running
 
 ```bash
