@@ -29,6 +29,12 @@ const (
 	cbGenRandom = "gen_random"
 	cbGenCustom = "gen_custom"
 	cbGenCancel = "gen_cancel"
+
+	cbFwdSetGmail           = "fwd_set_gmail"
+	cbFwdCancel             = "fwd_cancel"
+	cbFwdDeleteGmailPrompt  = "fwd_del_prompt"
+	cbFwdDeleteGmailConfirm = "fwd_del_conf"
+	cbFwdRetry              = "fwd_retry"
 )
 
 type UserState struct {
@@ -46,6 +52,7 @@ var (
 
 const StateWaitingCustomName = "waiting_custom_name"
 const StateWaitingDomainCustom = "waiting_domain_custom"
+const StateWaitingGmail = "waiting_gmail"
 
 var validNameRegex = regexp.MustCompile(`^[a-z0-9.]+$`)
 
@@ -100,6 +107,13 @@ func main() {
 				userStatesMutex.Unlock()
 			}
 			err = handleStart(ctx, api, user)
+		case strings.HasPrefix(text, "/forwardmails"):
+			if user != nil {
+				userStatesMutex.Lock()
+				delete(userStates, user.ID)
+				userStatesMutex.Unlock()
+			}
+			err = handleForwardMails(ctx, api, user)
 		case strings.HasPrefix(text, "/status"):
 			if user != nil {
 				userStatesMutex.Lock()
@@ -128,6 +142,9 @@ func main() {
 				userStatesMutex.RUnlock()
 				if ok && state.State == StateWaitingCustomName {
 					err = handleCustomNameInput(ctx, api, user, text, state)
+					return err
+				} else if ok && state.State == StateWaitingGmail {
+					err = handleGmailInput(ctx, api, user, text, state)
 					return err
 				}
 			}
@@ -174,6 +191,14 @@ func main() {
 			err = handleCallbackGenCustom(ctx, api, user, peer, msgID)
 		case cbGenCancel:
 			err = handleCallbackGenCancel(ctx, api, user, peer, msgID)
+		case cbFwdSetGmail, cbFwdRetry:
+			err = handleCallbackFwdSetGmail(ctx, api, user, peer, msgID)
+		case cbFwdCancel:
+			err = handleCallbackFwdCancel(ctx, api, user, peer, msgID)
+		case cbFwdDeleteGmailPrompt:
+			err = handleCallbackFwdDeleteGmailPrompt(ctx, api, user, peer, msgID)
+		case cbFwdDeleteGmailConfirm:
+			err = handleCallbackFwdDeleteGmailConfirm(ctx, api, user, peer, msgID)
 		default:
 			if strings.HasPrefix(callbackData, "cb_dom_rnd_") {
 				idxStr := strings.TrimPrefix(callbackData, "cb_dom_rnd_")
@@ -310,7 +335,74 @@ func handleStart(ctx context.Context, api *tg.Client, user *tg.User) error {
 	entities := []tg.MessageEntityClass{
 		&tg.MessageEntityBold{Offset: 0, Length: utf16Len(fullText)},
 	}
+
+	if user != nil {
+		ensureUserInStore(user.ID)
+	}
+
 	return sendMessage(ctx, api, user, fullText, entities)
+}
+
+func handleForwardMails(ctx context.Context, api *tg.Client, user *tg.User) error {
+	if user == nil {
+		return fmt.Errorf("user is nil")
+	}
+
+	email := getForwardEmail(user.ID)
+
+	if email == "" || email == "nomail" {
+		text := "Sᴇᴛ Yᴏᴜʀ Gᴍᴀɪʟ, Aʟʟ Fᴜᴛᴜʀᴇ Eᴍᴀɪʟs Wɪʟʟ Bᴇ Aᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ Fᴏʀᴡᴀʀᴅᴇᴅ Tᴏ Yᴏᴜʀ Gᴍᴀɪʟ."
+		entities := []tg.MessageEntityClass{
+			&tg.MessageEntityBold{Offset: 0, Length: utf16Len(text)},
+		}
+
+		markup := &tg.ReplyInlineMarkup{
+			Rows: []tg.KeyboardButtonRow{
+				{
+					Buttons: []tg.KeyboardButtonClass{
+						&tg.KeyboardButtonCallback{
+							Text: "Sᴇᴛ Gᴍᴀɪʟ",
+							Data: []byte(cbFwdSetGmail),
+						},
+					},
+				},
+				{
+					Buttons: []tg.KeyboardButtonClass{
+						&tg.KeyboardButtonCallback{
+							Text: "Cᴀɴᴄᴇʟ",
+							Data: []byte(cbFwdCancel),
+						},
+					},
+				},
+			},
+		}
+
+		peer := userToInputPeer(user)
+		_, err := sendMessageWithMarkupAndGetID(ctx, api, peer, text, entities, markup)
+		return err
+	} else {
+		text := fmt.Sprintf("Aᴜᴛᴏ Fᴏʀᴡᴀʀᴅ Mᴀɪʟs: Oɴ 🟢\n\nGᴍᴀɪʟ: %s", email)
+		entities := []tg.MessageEntityClass{
+			&tg.MessageEntityBold{Offset: 0, Length: utf16Len(text)},
+		}
+
+		markup := &tg.ReplyInlineMarkup{
+			Rows: []tg.KeyboardButtonRow{
+				{
+					Buttons: []tg.KeyboardButtonClass{
+						&tg.KeyboardButtonCallback{
+							Text: "Dᴇʟᴇᴛᴇ Gᴍᴀɪʟ",
+							Data: []byte(cbFwdDeleteGmailPrompt),
+						},
+					},
+				},
+			},
+		}
+
+		peer := userToInputPeer(user)
+		_, err := sendMessageWithMarkupAndGetID(ctx, api, peer, text, entities, markup)
+		return err
+	}
 }
 
 func handleStatus(ctx context.Context, api *tg.Client, user *tg.User) error {
@@ -453,6 +545,148 @@ func handleCallbackGenCancel(ctx context.Context, api *tg.Client, user *tg.User,
 	}
 
 	text := "Cᴀɴᴄᴇʟʟᴇᴅ 🔴"
+	entities := []tg.MessageEntityClass{
+		&tg.MessageEntityBold{Offset: 0, Length: utf16Len(text)},
+	}
+	return editMessage(ctx, api, peer, msgID, text, entities)
+}
+
+func handleCallbackFwdSetGmail(ctx context.Context, api *tg.Client, user *tg.User, peer tg.InputPeerClass, msgID int) error {
+	text := "Eɴᴛᴇʀ Yᴏᴜʀ Gᴍᴀɪʟ Aᴅᴅʀᴇss:"
+	entities := []tg.MessageEntityClass{
+		&tg.MessageEntityBold{Offset: 0, Length: utf16Len(text)},
+	}
+
+	markup := &tg.ReplyInlineMarkup{
+		Rows: []tg.KeyboardButtonRow{
+			{
+				Buttons: []tg.KeyboardButtonClass{
+					&tg.KeyboardButtonCallback{
+						Text: "Cᴀɴᴄᴇʟ",
+						Data: []byte(cbFwdCancel),
+					},
+				},
+			},
+		},
+	}
+
+	err := editMessageWithMarkup(ctx, api, peer, msgID, text, entities, markup)
+	if err != nil {
+		return err
+	}
+
+	userStatesMutex.Lock()
+	userStates[user.ID] = UserState{
+		State: StateWaitingGmail,
+		MsgID: msgID,
+		Peer:  peer,
+	}
+	userStatesMutex.Unlock()
+
+	return nil
+}
+
+func handleCallbackFwdCancel(ctx context.Context, api *tg.Client, user *tg.User, peer tg.InputPeerClass, msgID int) error {
+	if user != nil {
+		userStatesMutex.Lock()
+		delete(userStates, user.ID)
+		userStatesMutex.Unlock()
+	}
+
+	text := "Cᴀɴᴄᴇʟʟᴇᴅ 🔴"
+	entities := []tg.MessageEntityClass{
+		&tg.MessageEntityBold{Offset: 0, Length: utf16Len(text)},
+	}
+	return editMessage(ctx, api, peer, msgID, text, entities)
+}
+
+func handleGmailInput(ctx context.Context, api *tg.Client, user *tg.User, text string, state UserState) error {
+	email := strings.TrimSpace(text)
+	
+	if !strings.Contains(email, "@") || !strings.Contains(email, ".") {
+		return handleGmailError(ctx, api, user, state, "Nᴏᴛ a Vᴀʟɪᴅ Eᴍᴀɪʟ Fᴏʀᴍᴀᴛ.")
+	}
+	
+	if !strings.HasSuffix(strings.ToLower(email), "@gmail.com") {
+		return handleGmailError(ctx, api, user, state, "Oɴʟʏ Gᴍᴀɪʟ Aᴅᴅʀᴇss Aʟʟᴏᴡᴇᴅ.")
+	}
+
+	userStatesMutex.Lock()
+	delete(userStates, user.ID)
+	userStatesMutex.Unlock()
+
+	_ = deleteMessage(ctx, api, state.Peer, state.MsgID)
+
+	setForwardEmail(user.ID, email)
+
+	successText := "Vᴇʀɪғɪᴄᴀᴛɪᴏɴ Sᴜᴄᴄᴇss 🟢\n\nYᴏᴜʀ Gᴍᴀɪʟ Aᴅᴅʀᴇss Hᴀs Vᴇʀɪғɪᴇᴅ Sᴜᴄᴄᴇssғᴜʟʟʏ, Fʀᴏᴍ Nᴏᴡ Aʟʟ Mᴀɪʟs Wɪʟʟ Bᴇ Aᴜᴛᴏ Fᴏʀᴡᴀʀᴅᴇᴅ Tᴏ Yᴏᴜʀ Gᴍᴀɪʟ Aᴅᴅʀᴇss."
+	entities := []tg.MessageEntityClass{
+		&tg.MessageEntityBold{Offset: 0, Length: utf16Len(successText)},
+	}
+
+	return sendMessage(ctx, api, user, successText, entities)
+}
+
+func handleGmailError(ctx context.Context, api *tg.Client, user *tg.User, state UserState, errReason string) error {
+	userStatesMutex.Lock()
+	delete(userStates, user.ID)
+	userStatesMutex.Unlock()
+
+	_ = deleteMessage(ctx, api, state.Peer, state.MsgID)
+
+	failText := fmt.Sprintf("Vᴇʀɪғɪᴄᴀᴛɪᴏɴ Fᴀɪʟᴇᴅ 🔴\n\nEʀʀᴏʀ: %s", errReason)
+	entities := []tg.MessageEntityClass{
+		&tg.MessageEntityBold{Offset: 0, Length: utf16Len(failText)},
+	}
+
+	markup := &tg.ReplyInlineMarkup{
+		Rows: []tg.KeyboardButtonRow{
+			{
+				Buttons: []tg.KeyboardButtonClass{
+					&tg.KeyboardButtonCallback{
+						Text: "Rᴇᴛʀʏ",
+						Data: []byte(cbFwdRetry),
+					},
+				},
+			},
+		},
+	}
+
+	_, err := sendMessageWithMarkupAndGetID(ctx, api, state.Peer, failText, entities, markup)
+	return err
+}
+
+func handleCallbackFwdDeleteGmailPrompt(ctx context.Context, api *tg.Client, user *tg.User, peer tg.InputPeerClass, msgID int) error {
+	text := "Cᴏɴғɪʀᴍᴀᴛɪᴏɴ Mᴇssᴀɢᴇ 🔴\n\nAғᴛᴇʀ Yᴏᴜ Dᴇʟᴇᴛᴇ Yᴏᴜʀ Gᴍᴀɪʟ Aᴅᴅʀᴇss Fʀᴏᴍ Oᴜʀ Sᴇʀᴠᴇʀ, Yᴏᴜ Wɪʟʟ Nᴏ Lᴏɴɢᴇʀ Rᴇᴄᴇɪᴠᴇ Fᴏʀᴡᴀʀᴅᴇᴅ Eᴍᴀɪʟs Fʀᴏᴍ Yᴏᴜʀ Tᴇᴍᴘ Eᴍᴀɪʟs.\n\nAʀᴇ Yᴏᴜ Sᴜʀᴇ Yᴏᴜ Wᴀɴᴛ Tᴏ Dᴇʟᴇᴛᴇ ɪᴛ?"
+	
+	entities := []tg.MessageEntityClass{
+		&tg.MessageEntityBold{Offset: 0, Length: utf16Len(text)},
+	}
+
+	markup := &tg.ReplyInlineMarkup{
+		Rows: []tg.KeyboardButtonRow{
+			{
+				Buttons: []tg.KeyboardButtonClass{
+					&tg.KeyboardButtonCallback{
+						Text: "Cᴀɴᴄᴇʟ",
+						Data: []byte(cbFwdCancel),
+					},
+					&tg.KeyboardButtonCallback{
+						Text: "Dᴇʟᴇᴛᴇ 🔴",
+						Data: []byte(cbFwdDeleteGmailConfirm),
+					},
+				},
+			},
+		},
+	}
+
+	return editMessageWithMarkup(ctx, api, peer, msgID, text, entities, markup)
+}
+
+func handleCallbackFwdDeleteGmailConfirm(ctx context.Context, api *tg.Client, user *tg.User, peer tg.InputPeerClass, msgID int) error {
+	setForwardEmail(user.ID, "nomail")
+	
+	text := "Sᴜᴄᴄᴇssғᴜʟʟʏ Dᴇʟᴇᴛᴇᴅ 🔴"
 	entities := []tg.MessageEntityClass{
 		&tg.MessageEntityBold{Offset: 0, Length: utf16Len(text)},
 	}
