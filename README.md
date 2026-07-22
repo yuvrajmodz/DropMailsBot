@@ -1,6 +1,6 @@
 # DropMails - Temporary Email Telegram Bot
 
-A Telegram Bot that provides Email addresses with Real-time Email Forwarding and automatic GitHub backup.
+A Telegram Bot that provides Email addresses with Real-time Email Forwarding.
 
 ## Features
 
@@ -68,7 +68,7 @@ To connect your domain for email receiving, add the following DNS records in Clo
 |------|------|---------|
 | TXT | @ | v=spf1 mx ip4:YOUR_SERVER_IP -all |
 
-**Note:** Replace `yourdomain.com` with your actual domain and `YOUR_SERVER_IP` with your server IP address.
+**Note:** Replace `yourdomain.com` With Your Actual Domain And `YOUR_SERVER_IP` With Your Server IP Address.
 
 ## Running
 
