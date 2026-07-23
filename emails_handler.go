@@ -28,6 +28,28 @@ var ErrEmailExists = errors.New("email already exists")
 
 var Domains = "nacdevs.qzz.io,xtg.qzz.io"
 
+type SMTPConfig struct {
+	SMTPHost     string `json:"smtp_host"`
+	SMTPPort     string `json:"smtp_port"`
+	Email        string `json:"email"`
+	AppPassword  string `json:"app_password"`
+}
+
+var smtpConfig SMTPConfig
+
+func loadSMTPConfig() error {
+	data, err := os.ReadFile("SMTP.json")
+	if err != nil {
+		return fmt.Errorf("failed to read SMTP.json: %w", err)
+	}
+	
+	if err := json.Unmarshal(data, &smtpConfig); err != nil {
+		return fmt.Errorf("failed to parse SMTP.json: %w", err)
+	}
+	
+	return nil
+}
+
 func getDomains() []string {
 	var list []string
 	for _, d := range strings.Split(Domains, ",") {
@@ -379,7 +401,7 @@ func forwardEmailToGmail(toGmail, fromEmail, toAddr, subject string, env *enmime
   <tr>
     <td style="padding:18px 22px;background:#f4b400;border-radius:12px 12px 0 0;">
       <div style="font-size:20px;font-weight:700;color:#111827;line-height:1;">DropMails</div>
-      <div style="margin-top:6px;font-size:13px;color:#5f4300;">Forwarded Email</div>
+      <div style="margin-top:6px;font-size:13px;color:#111827;">Forwarded Email</div>
     </td>
   </tr>
   <tr>
@@ -415,7 +437,7 @@ func forwardEmailToGmail(toGmail, fromEmail, toAddr, subject string, env *enmime
 	buf := new(bytes.Buffer)
 	writer := multipart.NewWriter(buf)
 
-	buf.WriteString("From: DropMails Bot <dropmails.services@gmail.com>\r\n")
+	buf.WriteString(fmt.Sprintf("From: DropMails Bot <%s>\r\n", smtpConfig.Email))
 	buf.WriteString(fmt.Sprintf("To: %s\r\n", toGmail))
 	
 	encodedSubject := mime.QEncoding.Encode("utf-8", subject)
@@ -444,8 +466,9 @@ func forwardEmailToGmail(toGmail, fromEmail, toAddr, subject string, env *enmime
 
 	writer.Close()
 
-	auth := netsmtp.PlainAuth("", "dropmails.services@gmail.com", "hwzo pbmo ebdc oxkm", "smtp.gmail.com")
-	return netsmtp.SendMail("smtp.gmail.com:587", auth, "dropmails.services@gmail.com", []string{toGmail}, buf.Bytes())
+	auth := netsmtp.PlainAuth("", smtpConfig.Email, smtpConfig.AppPassword, smtpConfig.SMTPHost)
+	smtpAddr := fmt.Sprintf("%s:%s", smtpConfig.SMTPHost, smtpConfig.SMTPPort)
+	return netsmtp.SendMail(smtpAddr, auth, smtpConfig.Email, []string{toGmail}, buf.Bytes())
 }
 
 func writeEmailPart(writer *multipart.Writer, p *enmime.Part, isInline bool) {
