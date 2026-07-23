@@ -44,6 +44,15 @@ A Telegram Bot that provides Email addresses with Real-time Email Forwarding.
      REPO_OWNER=your_github_username
      REPO_NAME=your_backup_repo_name
      ```
+   - Create a `SMTP.json` file in the project root for email forwarding:
+     ```json
+     {
+       "smtp_host": "smtp.gmail.com",
+       "smtp_port": "587",
+       "email": "your_gmail@gmail.com",
+       "app_password": "your_app_password"
+     }
+     ```
    - Update domains in `emails_handler.go`:
      ```go
      var Domains = "yourdomain1.com,yourdomain2.com"
