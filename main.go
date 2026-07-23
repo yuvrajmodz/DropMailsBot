@@ -82,6 +82,10 @@ func main() {
 		log.Fatalf("❌ Failed to initialize database: %v", err)
 	}
 
+	if err := loadSMTPConfig(); err != nil {
+		log.Fatalf("❌ Failed to load SMTP config: %v", err)
+	}
+
 	dispatcher := tg.NewUpdateDispatcher()
 	var api *tg.Client
 
