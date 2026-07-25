@@ -6,6 +6,13 @@ A powerful Telegram Bot that provides temporary email addresses with real-time e
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Telegram](https://img.shields.io/badge/Telegram-Bot-2CA5E0?style=flat&logo=telegram)
 
+## Try the Public Bot
+
+You can try the live public bot directly on Telegram:
+- **Bot Username**: [DʀᴏᴘMᴀɪʟs Bᴏᴛ](https://t.me/DropMailsBot)
+
+Click the link above to start using the bot immediately, or follow the instructions below to host your own instance.
+
 ## Features
 
 - **Email Generation**: Generate random or custom email addresses instantly
