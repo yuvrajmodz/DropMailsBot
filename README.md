@@ -1,97 +1,181 @@
-# DropMails - Temporary Email Telegram Bot
+# DropMailsBot - Temporary Email Telegram Bot
 
-A Telegram Bot that provides Email addresses with Real-time Email Forwarding.
+A powerful Telegram Bot that provides temporary email addresses with real-time email receiving, automatic forwarding, and secure data backup.
+
+![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)
+![License](https://img.shields.io/badge/License-MIT-green.svg)
+![Telegram](https://img.shields.io/badge/Telegram-Bot-2CA5E0?style=flat&logo=telegram)
 
 ## Features
 
-- Generate Random or Custom Email addresses
-- Receive Emails directly in your Telegram chat
-- Support for Email attachments
-- Multiple domain options
-- No ads, no charges, 24/7 online
-- Automatic GitHub Database Backup of Users Data
+- **Email Generation**: Generate random or custom email addresses instantly
+- **Real-time Receiving**: Receive emails directly in your Telegram chat
+- **Attachment Support**: Full support for email attachments and files
+- **Multiple Domains**: Support for multiple custom domains
+- **Email Forwarding**: Automatic forwarding to your Gmail address
+- **Data Backup**: Automatic GitHub backup of user data
+- **24/7 Availability**: No ads, no charges, always online
+- **User Management**: Multi-user support with state management
 
-## Commands
+## Bot Commands
 
-- `/start` - Start the bot
-- `/gen` - Generate an email
-- `/status` - Check bot status
-- `/about` - About the bot
+| Command | Description |
+|---------|-------------|
+| `/start` | Start or restart the bot |
+| `/gen` | Generate a new temporary email |
+| `/forwardmails` | Configure automatic email forwarding to Gmail |
+| `/status` | Check bot status and connectivity |
+| `/about` | About the bot and developer information |
 
-## Installation
+## Quick Start
 
-1. Clone the repository:
+### Prerequisites
+
+- Go 1.23 or higher
+- Telegram Bot Token from [@BotFather](https://t.me/botfather)
+- API ID and Hash from [my.telegram.org](https://my.telegram.org)
+- A domain with DNS management access
+- Server with public IP and port 25 open
+
+### Installation
+
+1. **Clone the repository**
    ```bash
    git clone https://github.com/yuvrajmodz/DropMailsBot
    cd DropMailsBot
    ```
 
-2. Install dependencies:
+2. **Install dependencies**
    ```bash
    go mod tidy
    ```
 
-3. Configure the bot:
-   - Get your Telegram Bot Token from [@BotFather](https://t.me/botfather)
-   - Get API ID and Hash from [my.telegram.org](https://my.telegram.org)
-   - Create a GitHub Personal Access Token with `repo` scope
-   - Create a `.env` file in the project root:
-     ```env
-     API_ID=your_api_id
-     API_HASH=your_api_hash
-     BOT_TOKEN=your_bot_token
-     GITHUB_TOKEN=your_github_token
-     REPO_OWNER=your_github_username
-     REPO_NAME=your_backup_repo_name
-     ```
-   - Create a `SMTP.json` file in the project root for email forwarding:
-     ```json
-     {
-       "smtp_host": "smtp.gmail.com",
-       "smtp_port": "587",
-       "email": "your_gmail@gmail.com",
-       "app_password": "your_app_password"
-     }
-     ```
-   - Update domains in `emails_handler.go`:
-     ```go
-     var Domains = "yourdomain1.com,yourdomain2.com"
-     ```
+3. **Configure environment variables**
+   Create a `.env` file in the project root:
+   ```env
+   API_ID=your_api_id
+   API_HASH=your_api_hash
+   BOT_TOKEN=your_bot_token
+   GITHUB_TOKEN=your_github_token
+   REPO_OWNER=your_github_username
+   REPO_NAME=your_backup_repo_name
+   ```
 
-## Cloudflare DNS Setup
+4. **Configure SMTP for email forwarding**
+   Create a `SMTP.json` file:
+   ```json
+   {
+     "smtp_host": "smtp.gmail.com",
+     "smtp_port": "587",
+     "email": "your_gmail@gmail.com",
+     "app_password": "your_app_password"
+   }
+   ```
 
-To connect your domain for email receiving, add the following DNS records in Cloudflare:
+5. **Configure your domains**
+   Update the `Domains` variable in `emails_handler.go`:
+   ```go
+   var Domains = "yourdomain1.com,yourdomain2.com"
+   ```
 
-### A Record (Mail Server)
-| Type | Name | Content | Proxy Status |
-|------|------|---------|--------------|
-| A | mail | Your Server IP | DNS Only (Grey Cloud) |
+6. **Run the bot**
+   ```bash
+   go run .
+   ```
 
-### MX Records (Required for Email Receiving)
-| Type | Name | Content | Priority |
-|------|------|---------|----------|
+## Documentation
+
+For detailed information about configuration, deployment, and future plans, check out our comprehensive documentation:
+
+- **[CONFIGURATION.md](CONFIGURATION.md)** - Complete configuration guide including environment variables, SMTP setup, DNS configuration, and security best practices
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Detailed deployment guide with Docker, Systemd, and cloud deployment options
+- **[ROADMAP.md](ROADMAP.md)** - Project roadmap, planned features, and development timeline
+
+## DNS Configuration
+
+To receive emails on your custom domains, configure the following DNS records:
+
+### Required Records
+
+| Type | Name | Content | Priority/Proxy |
+|------|------|---------|----------------|
+| A | mail | Your Server IP | DNS Only |
 | MX | @ | mail.yourdomain.com | 10 |
 
-### TXT Record (SPF - Optional)
+### Optional Records
+
 | Type | Name | Content |
 |------|------|---------|
 | TXT | @ | v=spf1 mx ip4:YOUR_SERVER_IP -all |
 
-**Note:** Replace `yourdomain.com` With Your Actual Domain And `YOUR_SERVER_IP` With Your Server IP Address.
-
-## Running
-
-```bash
-go run .
-```
+**Note**: Replace `yourdomain.com` with your actual domain and `YOUR_SERVER_IP` with your server's public IP address.
 
 ## Usage
 
-- Send `/gen` to create an email
-- Choose random or custom name
-- Select your preferred domain
-- Emails sent to your address will appear in Telegram
+1. **Start the bot** by sending `/start` in Telegram
+2. **Generate an email** using `/gen` command
+3. **Choose email type** - random or custom name
+4. **Select domain** from available options
+5. **Receive emails** directly in your Telegram chat
+6. **Set up forwarding** using `/forwardmails` to auto-forward to Gmail
 
-## Credits
+## Deployment Options
 
-- Developer: @lieqy
+### Docker Deployment (Recommended)
+```bash
+docker-compose up -d --build
+```
+
+### Systemd Service
+```bash
+sudo systemctl start dropmailsbot
+sudo systemctl enable dropmailsbot
+```
+
+### Cloud Deployment
+Supported on DigitalOcean, AWS EC2, Google Cloud Platform
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions.
+
+## Architecture
+
+- **Language**: Go 1.23+
+- **Telegram Library**: gotd/td
+- **SMTP Server**: go-smtp
+- **Email Parsing**: enmime
+- **Backup**: GitHub API with fsnotify
+- **Data Storage**: JSON with automatic sync
+
+## Security Features
+
+- Environment variable based configuration
+- No sensitive data in code
+- Automatic data backup to GitHub
+- Secure SMTP with TLS support
+- Rate limiting and abuse prevention
+
+## Contributing
+
+Contributions are welcome! Please read our [ROADMAP.md](ROADMAP.md) for planned features and contribution guidelines.
+
+## Troubleshooting
+
+For common issues and solutions, refer to:
+- [CONFIGURATION.md - Troubleshooting Section](CONFIGURATION.md#troubleshooting)
+- [DEPLOYMENT.md - Troubleshooting Section](DEPLOYMENT.md#troubleshooting)
+
+## Support
+
+- **Issues**: Report bugs on [GitHub Issues](https://github.com/yuvrajmodz/DropMailsBot/issues)
+- **Documentation**: Check [CONFIGURATION.md](CONFIGURATION.md) and [DEPLOYMENT.md](DEPLOYMENT.md)
+- **Developer**: [@lieqy](https://t.me/lieqy)
+
+## License
+
+This project is licensed under the MIT License.
+
+## Acknowledgments
+
+- [gotd/td](https://github.com/gotd/td) - Telegram library for Go
+- [go-smtp](https://github.com/emersion/go-smtp) - SMTP server implementation
+- [enmime](https://github.com/jhillyerd/enmime) - Email parsing library
