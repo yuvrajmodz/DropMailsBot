@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -12,11 +13,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/gotd/td/session"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/uploader"
 	"github.com/gotd/td/tg"
@@ -35,6 +38,7 @@ const (
 	cbFwdDeleteGmailPrompt  = "fwd_del_prompt"
 	cbFwdDeleteGmailConfirm = "fwd_del_conf"
 	cbFwdRetry              = "fwd_retry"
+	cbBroadcastCancel       = "broadcast_cancel"
 )
 
 type UserState struct {
@@ -53,6 +57,7 @@ var (
 const StateWaitingCustomName = "waiting_custom_name"
 const StateWaitingDomainCustom = "waiting_domain_custom"
 const StateWaitingGmail = "waiting_gmail"
+const StateWaitingBroadcastPost = "waiting_broadcast_post"
 
 var validNameRegex = regexp.MustCompile(`^[a-z0-9.]+$`)
 
@@ -68,6 +73,9 @@ func main() {
 	if apiID == 0 || apiHash == "" || botToken == "" {
 		log.Fatalf("❌ Missing required credentials in .env file")
 	}
+	if err := os.MkdirAll("session", 0700); err != nil {
+		log.Fatalf("❌ Failed to create session directory: %v", err)
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -80,6 +88,9 @@ func main() {
 
 	if err := initJSONStore(); err != nil {
 		log.Fatalf("❌ Failed to initialize database: %v", err)
+	}
+	if err := ensureAdminsFile(); err != nil {
+		log.Fatalf("❌ Failed to initialize admins file: %v", err)
 	}
 
 	if err := loadSMTPConfig(); err != nil {
@@ -101,6 +112,20 @@ func main() {
 		text := strings.TrimSpace(msg.Message)
 
 		user := resolveUser(msg, e)
+		if user != nil {
+			userStatesMutex.RLock()
+			state, waiting := userStates[user.ID]
+			userStatesMutex.RUnlock()
+			if waiting && state.State == StateWaitingBroadcastPost {
+				return handleBroadcastPost(ctx, api, user, msg, state)
+			}
+		}
+		if isBroadcastCommand(text) {
+			if user == nil || !isBroadcastAdmin(user.ID) {
+				return nil
+			}
+			return handleBroadcastCommand(ctx, api, user)
+		}
 
 		var err error
 		switch {
@@ -203,6 +228,10 @@ func main() {
 			err = handleCallbackFwdDeleteGmailPrompt(ctx, api, user, peer, msgID)
 		case cbFwdDeleteGmailConfirm:
 			err = handleCallbackFwdDeleteGmailConfirm(ctx, api, user, peer, msgID)
+		case cbBroadcastCancel:
+			if user != nil && isBroadcastAdmin(user.ID) {
+				err = handleCallbackBroadcastCancel(ctx, api, user, peer, msgID)
+			}
 		default:
 			if strings.HasPrefix(callbackData, "cb_dom_rnd_") {
 				idxStr := strings.TrimPrefix(callbackData, "cb_dom_rnd_")
@@ -229,7 +258,8 @@ func main() {
 	go StartSMTPServer()
 
 	client := telegram.NewClient(int(apiID), apiHash, telegram.Options{
-		UpdateHandler: dispatcher,
+		UpdateHandler:  dispatcher,
+		SessionStorage: &session.FileStorage{Path: filepath.Join("session", "bot.session")},
 	})
 
 	if err := client.Run(ctx, func(ctx context.Context) error {
@@ -255,6 +285,140 @@ func main() {
 	}); err != nil {
 		log.Fatalf("❌ Bot error: %v", err)
 	}
+}
+
+func ensureAdminsFile() error {
+	file, err := os.OpenFile(filepath.Join("data", "admins.txt"), os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	return file.Close()
+}
+
+func isBroadcastCommand(text string) bool {
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return false
+	}
+	command := fields[0]
+	return command == "/broadcast" || strings.HasPrefix(command, "/broadcast@")
+}
+
+func isBroadcastAdmin(userID int64) bool {
+	file, err := os.Open(filepath.Join("data", "admins.txt"))
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		adminID, err := strconv.ParseInt(strings.TrimSpace(scanner.Text()), 10, 64)
+		if err == nil && adminID == userID {
+			return true
+		}
+	}
+	return false
+}
+
+func handleBroadcastCommand(ctx context.Context, api *tg.Client, user *tg.User) error {
+	text := "Send Post:"
+	entities := []tg.MessageEntityClass{
+		&tg.MessageEntityBold{Offset: 0, Length: utf16Len(text)},
+	}
+	markup := &tg.ReplyInlineMarkup{
+		Rows: []tg.KeyboardButtonRow{{
+			Buttons: []tg.KeyboardButtonClass{
+				&tg.KeyboardButtonCallback{Text: "Cᴀɴᴄᴇʟ", Data: []byte(cbBroadcastCancel)},
+			},
+		}},
+	}
+
+	msgID, err := sendMessageWithMarkupAndGetID(ctx, api, userToInputPeer(user), text, entities, markup)
+	if err != nil {
+		return err
+	}
+	if msgID == 0 {
+		return fmt.Errorf("could not resolve broadcast prompt message ID")
+	}
+
+	userStatesMutex.Lock()
+	userStates[user.ID] = UserState{State: StateWaitingBroadcastPost, MsgID: msgID, Peer: userToInputPeer(user)}
+	userStatesMutex.Unlock()
+	return nil
+}
+
+func handleBroadcastPost(ctx context.Context, api *tg.Client, user *tg.User, msg *tg.Message, state UserState) error {
+	userStatesMutex.Lock()
+	delete(userStates, user.ID)
+	userStatesMutex.Unlock()
+
+	sent, total := broadcastToRegisteredUsers(ctx, api, state.Peer, msg.ID)
+	return editMessage(ctx, api, state.Peer, state.MsgID, fmt.Sprintf("Broadcast complete: %d/%d", sent, total), nil)
+}
+
+func broadcastToRegisteredUsers(ctx context.Context, api *tg.Client, sourcePeer tg.InputPeerClass, msgID int) (int, int) {
+	storeMutex.RLock()
+	recipients := make([]int64, 0, len(store.Users))
+	for userID := range store.Users {
+		chatID, err := strconv.ParseInt(userID, 10, 64)
+		if err == nil && chatID != 0 {
+			recipients = append(recipients, chatID)
+		}
+	}
+	storeMutex.RUnlock()
+
+	const maxWorkers = 16
+	workerCount := min(maxWorkers, len(recipients))
+	jobs := make(chan int64)
+	results := make(chan bool, len(recipients))
+	var workers sync.WaitGroup
+	for range workerCount {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for chatID := range jobs {
+				_, err := api.MessagesForwardMessages(ctx, &tg.MessagesForwardMessagesRequest{
+					FromPeer: sourcePeer,
+					ID:       []int{msgID},
+					RandomID: []int64{rand.Int63()},
+					ToPeer:   &tg.InputPeerUser{UserID: chatID},
+				})
+				results <- err == nil
+			}
+		}()
+	}
+	for _, chatID := range recipients {
+		jobs <- chatID
+	}
+	close(jobs)
+	workers.Wait()
+	close(results)
+
+	sent := 0
+	for ok := range results {
+		if ok {
+			sent++
+		}
+	}
+	return sent, len(recipients)
+}
+
+func handleCallbackBroadcastCancel(ctx context.Context, api *tg.Client, user *tg.User, peer tg.InputPeerClass, msgID int) error {
+	userStatesMutex.Lock()
+	state, waiting := userStates[user.ID]
+	if waiting && state.State == StateWaitingBroadcastPost && state.MsgID == msgID {
+		delete(userStates, user.ID)
+	}
+	userStatesMutex.Unlock()
+	if !waiting || state.State != StateWaitingBroadcastPost || state.MsgID != msgID {
+		return nil
+	}
+	text := "Cᴀɴᴄᴇʟʟᴇᴅ 🔴"
+	entities := []tg.MessageEntityClass{
+		&tg.MessageEntityBold{Offset: 0, Length: utf16Len(text)},
+	}
+	return editMessage(ctx, api, peer, msgID, text, entities)
 }
 
 func buildInputPeerFromUpdate(peer tg.PeerClass, e tg.Entities) tg.InputPeerClass {
@@ -847,7 +1011,8 @@ func handleDomainSelectionCustom(ctx context.Context, api *tg.Client, user *tg.U
 
 	line1 := "Tᴇᴍᴘ Mᴀɪʟ Gᴇɴᴇʀᴀᴛᴇᴅ 🟢"
 	line2 := fmt.Sprintf("Eᴍᴀɪʟ: %s", email)
-	fullText := line1 + "\n\n" + line2
+	line3 := "Yᴏᴜʀ Eᴍᴀɪʟ Aᴅᴅʀᴇss Hᴀs Bᴇᴇɴ Sᴜᴄᴄᴇssғᴜʟʟʏ Lɪɴᴋᴇᴅ Tᴏ Yᴏᴜʀ Aᴄᴄᴏᴜɴᴛ, Fʀᴏᴍ Nᴏᴡ, Aɴʏ Mᴀɪʟ Sᴇɴᴛ Tᴏ Tʜɪs Eᴍᴀɪʟ Wɪʟʟ Bᴇ Aᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ Rᴇᴄᴇɪᴠᴇᴅ Aɴᴅ Dᴇʟɪᴠᴇʀᴇᴅ Tᴏ Yᴏᴜ Vɪᴀ Tʜɪs Bᴏᴛ."
+	fullText := line1 + "\n\n" + line2 + "\n\n" + line3
 
 	entities := []tg.MessageEntityClass{
 		&tg.MessageEntityBold{Offset: 0, Length: utf16Len(fullText)},
