@@ -26,7 +26,7 @@ import (
 
 var ErrEmailExists = errors.New("email already exists")
 
-var Domains = "nacdevs.qzz.io,xtg.qzz.io,nacdevs.indevs.in"
+var Domains = "nacdevs.qzz.io,nacdevs.indevs.in"
 
 type SMTPConfig struct {
 	SMTPHost     string `json:"smtp_host"`
